@@ -1,0 +1,42 @@
+# .NET
+bin/
+obj/
+**/bin/
+**/obj/
+/packages/
+
+# JetBrains Rider
+.idea/
+*.iml
+riderModule.iml
+/_ReSharper.Caches/
+*.suo
+*.user
+*.userosscache
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# BenchmarkDotNet
+BenchmarkDotNet.Artifacts/
+**/BenchmarkDotNet.Artifacts/
+
+# Copilot temporary files
+copilot.data.migration.*
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# NuGet packages
+*.nupkg
+*.snupkg
+/artifacts/
+
+# Local configuration
+appsettings.Local.json
+appsettings.*.Local.json
+*.pfx
+*.p12

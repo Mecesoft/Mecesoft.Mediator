@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+        <AssemblyName>Mecesoft.Mediator</AssemblyName>
+        <RootNamespace>Mecesoft.Mediator</RootNamespace>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+        <Title>Mecesoft.Mediator</Title>
+        <Description>A lightweight, dependency-injection-friendly mediator library for .NET.</Description>
+        <PackageId>Mecesoft.Mediator</PackageId>
+        <Authors>Mecesoft</Authors>
+        <Copyright>Copyright © Mecesoft</Copyright>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <!-- Draft target: the repository has not been created yet. -->
+        <RepositoryUrl>https://github.com/Mecesoft/Mecesoft.Mediator</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/Mecesoft/Mecesoft.Mediator</PackageProjectUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageTags>mediator;cqs;dependency-injection;pipeline;request-response</PackageTags>
+        <Version>1.0.0</Version>
+        <PackageIcon>Mecesoft_Mediator_Logo.png</PackageIcon>
+        <PackageReleaseNotes>
+            Initial release under the Mecesoft.Mediator identity.
+            Public API: AddMediator, MediatorOptions, and RequestHandlerDelegate.
+            Supports .NET 8 and .NET 10.
+        </PackageReleaseNotes>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1591</NoWarn>
+        <LangVersion>default</LangVersion>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+      <!-- SourceLink activates automatically once the repository (and its .git directory) exists. -->
+      <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.402" PrivateAssets="all"
+                        Condition="Exists('$(MSBuildProjectDirectory)/.git') Or Exists('$(MSBuildProjectDirectory)/../.git')" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Include="Mecesoft_Mediator_Logo.png" Pack="true" PackagePath="\" />
+      <None Include="..\README.md" Pack="true" PackagePath="\" />
+      <None Include="..\LICENSE" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+</Project>

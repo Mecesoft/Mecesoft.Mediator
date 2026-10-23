@@ -1,0 +1,399 @@
+# DRAFT — INTENTIONALLY INACTIVE.
+#
+# GitHub Actions only executes files ending in .yml or .yaml. The ".draft"
+# extension keeps this workflow inert. Do not rename it to .yml until the
+# repository, NuGet Trusted Publishing policy, protected environment, and
+# release approval process are all in place.
+#
+# Security parity with the Mecesoft.Result release standard:
+#   - Manual dispatch only, from master, building an immutable annotated v* tag.
+#   - Exact 40-character commit SHA verified against HEAD and the peeled tag.
+#   - Tagged commit must be an ancestor of origin/master and must have passed CI.
+#   - Package version must match the tag; duplicate .nupkg versions are refused.
+#   - NUGET_USER is a repository/environment variable, never a secret.
+#   - NuGet/login is pinned to a verified commit SHA and uses OIDC Trusted Publishing.
+#   - The protected "nuget" environment gates publication.
+#   - Post-upload verification checks only the .nupkg flatcontainer endpoint;
+#     NuGet.org does not expose .snupkg through flatcontainer.
+#
+# Prerequisites before activation:
+#   1. Create the GitHub repository at the target URL in the project metadata.
+#   2. Configure a protected environment named "nuget" with required reviewers
+#      and deployment branch/tag restrictions (master for bootstrap and v* tags).
+#   3. Configure a Trusted Publishing policy on nuget.org for this repository
+#      and workflow; set the NUGET_USER repository/environment variable to the
+#      NuGet profile name (not an email address).
+#   4. Protect v* tags so release tags are immutable.
+#   5. Keep every third-party action pinned to a full commit SHA.
+
+name: Publish NuGet (draft)
+
+# Bootstrap note: this workflow is dispatched from master but builds the
+# immutable release tag. The `nuget` environment must allow master in addition
+# to the v* tag policy, otherwise GitHub rejects the publish job.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Immutable release tag matching vMAJOR.MINOR.PATCH"
+        required: true
+        type: string
+      expected_commit:
+        description: "Expected 40-character commit SHA of the release tag"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: nuget-publish
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  NUGET_USER: ${{ vars.NUGET_USER }}
+
+jobs:
+  preflight:
+    name: Verify tag, source, version and CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout immutable release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Verify NuGet username variable
+        run: |
+          set -euo pipefail
+          test -n "${NUGET_USER:-}" || {
+            echo "Repository or environment variable NUGET_USER is required (NuGet profile name, not email)" >&2
+            exit 1
+          }
+
+      - name: Verify tag, source and package version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          [[ "$REF" == "refs/heads/master" ]] || {
+            echo "This publication workflow must be dispatched from master" >&2
+            exit 1
+          }
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "release_tag must match vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          }
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "expected_commit must be a 40-character lowercase SHA" >&2
+            exit 1
+          }
+
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$EXPECTED_COMMIT"
+          test "$(git cat-file -t "refs/tags/${RELEASE_TAG}")" = "tag"
+
+          git fetch --no-tags origin "+refs/heads/master:refs/remotes/origin/master"
+          git merge-base --is-ancestor "$EXPECTED_COMMIT" origin/master
+
+          VERSION="$(dotnet msbuild Mecesoft.Mediator/Mecesoft.Mediator.csproj -getProperty:Version -nologo | tail -n 1 | tr -d '\r')"
+          test "v${VERSION}" = "$RELEASE_TAG"
+
+      - name: Verify tagged commit passed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?per_page=100" \
+            | jq -e --arg sha "$EXPECTED_COMMIT" \
+              'any(.workflow_runs[]; .head_sha == $sha and .status == "completed" and .conclusion == "success")' \
+              >/dev/null
+
+      - name: Verify version is not already on NuGet.org
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          # Only the .nupkg endpoint is a valid pre-publication existence check.
+          # NuGet.org does not expose .snupkg through flatcontainer.
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            "https://api.nuget.org/v3-flatcontainer/mecesoft.mediator/${VERSION}/mecesoft.mediator.${VERSION}.nupkg" || true)"
+          case "$status" in
+            404) ;;
+            200)
+              echo "FAILED: Mecesoft.Mediator ${VERSION} is already published; refusing to push again" >&2
+              exit 1
+              ;;
+            *)
+              echo "FAILED: unexpected HTTP ${status} while checking whether ${VERSION} exists" >&2
+              exit 1
+              ;;
+          esac
+
+  publish:
+    name: Build and publish with OIDC
+    needs: preflight
+    if: ${{ github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: nuget
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout immutable release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Verify checked-out source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$EXPECTED_COMMIT"
+          VERSION="$(dotnet msbuild Mecesoft.Mediator/Mecesoft.Mediator.csproj -getProperty:Version -nologo | tail -n 1 | tr -d '\r')"
+          test "v${VERSION}" = "$RELEASE_TAG"
+
+      - name: Restore
+        run: dotnet restore Mecesoft.Mediator.sln
+
+      - name: Build production (Release, all target frameworks)
+        run: >-
+          dotnet build Mecesoft.Mediator/Mecesoft.Mediator.csproj
+          -c Release
+          --no-restore
+          -p:GeneratePackageOnBuild=false
+          -p:ContinuousIntegrationBuild=true
+
+      - name: Build tests (Release, all target frameworks)
+        run: >-
+          dotnet build tests/Mecesoft.Mediator.Tests/Mecesoft.Mediator.Tests.csproj
+          -c Release
+          --no-restore
+          -p:GeneratePackageOnBuild=false
+          -p:ContinuousIntegrationBuild=true
+
+      - name: Test .NET 8
+        run: >-
+          dotnet test tests/Mecesoft.Mediator.Tests/Mecesoft.Mediator.Tests.csproj
+          -c Release -f net8.0 --no-build --no-restore
+          --logger "console;verbosity=minimal"
+
+      - name: Test .NET 10
+        run: >-
+          dotnet test tests/Mecesoft.Mediator.Tests/Mecesoft.Mediator.Tests.csproj
+          -c Release -f net10.0 --no-build --no-restore
+          --logger "console;verbosity=minimal"
+
+      - name: Pack exact tagged source
+        run: |
+          set -euo pipefail
+          dotnet pack Mecesoft.Mediator/Mecesoft.Mediator.csproj \
+            -c Release \
+            --no-build \
+            --no-restore \
+            -p:GeneratePackageOnBuild=false \
+            -p:ContinuousIntegrationBuild=true \
+            -o artifacts/packages
+
+      - name: Validate package metadata and SourceLink
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          NUPKG="artifacts/packages/Mecesoft.Mediator.${VERSION}.nupkg"
+          SNUPKG="artifacts/packages/Mecesoft.Mediator.${VERSION}.snupkg"
+
+          test -f "$NUPKG"
+          test -f "$SNUPKG"
+          unzip -t "$NUPKG" >/dev/null
+          unzip -t "$SNUPKG" >/dev/null
+
+          unzip -p "$NUPKG" Mecesoft.Mediator.nuspec > artifacts/nuspec.xml
+          grep -F "<version>${VERSION}</version>" artifacts/nuspec.xml >/dev/null
+          grep -F "commit=\"${EXPECTED_COMMIT}\"" artifacts/nuspec.xml >/dev/null
+          grep -F 'README.md' <(unzip -l "$NUPKG") >/dev/null
+          grep -F 'LICENSE' <(unzip -l "$NUPKG") >/dev/null
+          grep -F 'Mecesoft_Mediator_Logo.png' <(unzip -l "$NUPKG") >/dev/null
+
+          for tfm in net8.0 net10.0; do
+            grep -F "lib/${tfm}/Mecesoft.Mediator.dll" <(unzip -l "$NUPKG") >/dev/null
+            grep -F "targetFramework=\"${tfm}\"" artifacts/nuspec.xml >/dev/null
+            grep -F "lib/${tfm}/Mecesoft.Mediator.pdb" <(unzip -l "$SNUPKG") >/dev/null
+            unzip -p "$SNUPKG" "lib/${tfm}/Mecesoft.Mediator.pdb" \
+              | strings \
+              | grep -F "raw.githubusercontent.com/Mecesoft/Mecesoft.Mediator/${EXPECTED_COMMIT}/" \
+                >/dev/null
+          done
+
+      - name: NuGet login (OIDC to temporary API key)
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ env.NUGET_USER }}
+
+      - name: Push package and symbols
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          NUGET_VERIFY_TIMEOUT_SECONDS: "1200"
+          NUGET_VERIFY_INITIAL_DELAY: "15"
+          NUGET_VERIFY_MAX_DELAY: "60"
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          NUPKG="artifacts/packages/Mecesoft.Mediator.${VERSION}.nupkg"
+          SNUPKG="artifacts/packages/Mecesoft.Mediator.${VERSION}.snupkg"
+          NUPKG_URL="https://api.nuget.org/v3-flatcontainer/mecesoft.mediator/${VERSION}/mecesoft.mediator.${VERSION}.nupkg"
+          PUSH_LOG="$(mktemp)"
+          SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          trap 'rm -f "$PUSH_LOG"' EXIT
+
+          {
+            echo "## NuGet publication"
+            echo ""
+            echo "- Package: \`Mecesoft.Mediator ${VERSION}\`"
+            echo "- Commit: \`${EXPECTED_COMMIT}\`"
+            echo ""
+            echo "| Status | Detail |"
+            echo "|---|---|"
+          } >> "$SUMMARY_FILE"
+
+          summary_status() {
+            local status="$1"
+            shift
+            printf '| **%s** | %s |\n' "$status" "$*" >> "$SUMMARY_FILE"
+          }
+
+          # A pre-existing .nupkg is a duplicate-version refusal.
+          # Any status other than 404 is unexpected and must fail safely.
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$NUPKG_URL" || true)"
+          case "$status" in
+            404) ;;
+            200)
+              echo "FAILED: Mecesoft.Mediator ${VERSION} is already published; refusing to push again" >&2
+              summary_status FAILED "Version ${VERSION} already exists on NuGet.org; upload refused"
+              exit 1
+              ;;
+            *)
+              echo "FAILED: unexpected HTTP ${status} while checking whether ${VERSION} exists" >&2
+              summary_status FAILED "Unexpected HTTP ${status} while checking existing version"
+              exit 1
+              ;;
+          esac
+
+          # A non-zero exit here is a real upload failure (auth, rejection or conflict).
+          if ! dotnet nuget push "$NUPKG" \
+              --source https://api.nuget.org/v3/index.json \
+              --api-key "$NUGET_API_KEY" 2>&1 | tee "$PUSH_LOG"; then
+            echo "FAILED: dotnet nuget push failed; see the upload error above" >&2
+            summary_status FAILED "dotnet nuget push failed; see upload output"
+            exit 1
+          fi
+
+          # dotnet nuget push also pushes the adjacent .snupkg. Verify that both
+          # file names were observed instead of assuming only the .nupkg was sent.
+          if ! grep -F "$(basename "$NUPKG")" "$PUSH_LOG" >/dev/null \
+             || ! grep -F "$(basename "$SNUPKG")" "$PUSH_LOG" >/dev/null; then
+            echo "FAILED: both nupkg and snupkg uploads were not observed in the push output" >&2
+            summary_status FAILED "nupkg or snupkg upload was not observed in push output"
+            exit 1
+          fi
+          echo "UPLOADED: Mecesoft.Mediator ${VERSION} nupkg and snupkg accepted by NuGet.org"
+          echo "SYMBOLS: UPLOADED (symbol indexing is asynchronous; .snupkg is not exposed via flatcontainer)"
+          summary_status UPLOADED "nupkg and snupkg accepted by NuGet.org"
+          summary_status UPLOADED "snupkg accepted; symbol indexing is asynchronous"
+
+          # NuGet.org indexing is asynchronous. A 404 after an accepted upload means
+          # VALIDATING, not FAILED. Poll with backoff, but never hide auth/rejection
+          # responses or a non-zero dotnet push result above.
+          START="${SECONDS}"
+          DELAY="${NUGET_VERIFY_INITIAL_DELAY}"
+          MAX_DELAY="${NUGET_VERIFY_MAX_DELAY}"
+          TIMEOUT="${NUGET_VERIFY_TIMEOUT_SECONDS}"
+          ATTEMPT=0
+          VALIDATING_RECORDED=0
+
+          while :; do
+            ATTEMPT=$((ATTEMPT + 1))
+            CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$NUPKG_URL" || true)"
+            ELAPSED=$((SECONDS - START))
+
+            case "$CODE" in
+              200)
+                echo "INDEXED: Mecesoft.Mediator ${VERSION} nupkg is available (HTTP 200, ${ELAPSED}s)"
+                summary_status INDEXED "nupkg is available (HTTP 200 after ${ELAPSED}s)"
+                exit 0
+                ;;
+              404|000|5??)
+                echo "VALIDATING: Mecesoft.Mediator ${VERSION} nupkg not indexed yet (HTTP ${CODE}, ${ELAPSED}s)"
+                if (( VALIDATING_RECORDED == 0 )); then
+                  summary_status VALIDATING "nupkg not indexed yet (HTTP ${CODE}); polling with backoff"
+                  VALIDATING_RECORDED=1
+                fi
+                ;;
+              401|403)
+                echo "FAILED: authentication/authorization error while verifying package (HTTP ${CODE})" >&2
+                summary_status FAILED "Authentication/authorization error while verifying package (HTTP ${CODE})"
+                exit 1
+                ;;
+              400|409)
+                echo "FAILED: NuGet rejected or conflicted on the package version (HTTP ${CODE})" >&2
+                summary_status FAILED "NuGet rejected or conflicted on the package version (HTTP ${CODE})"
+                exit 1
+                ;;
+              *)
+                echo "FAILED: unexpected HTTP ${CODE} while verifying package visibility" >&2
+                summary_status FAILED "Unexpected HTTP ${CODE} while verifying package visibility"
+                exit 1
+                ;;
+            esac
+
+            if (( ELAPSED >= TIMEOUT )); then
+              echo "VALIDATING: Mecesoft.Mediator ${VERSION} upload was accepted, but NuGet indexing is still pending after ${TIMEOUT}s" >&2
+              summary_status VALIDATING "Upload accepted; indexing still pending after ${TIMEOUT}s"
+              echo "::warning title=NuGet indexing pending::Mecesoft.Mediator ${VERSION} was uploaded, but NuGet.org has not exposed the nupkg within ${TIMEOUT}s. This is an indexing delay, not an upload failure."
+              exit 0
+            fi
+
+            sleep "$DELAY"
+            DELAY=$((DELAY * 2))
+            if (( DELAY > MAX_DELAY )); then
+              DELAY="${MAX_DELAY}"
+            fi
+          done

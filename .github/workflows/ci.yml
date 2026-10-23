@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore Mecesoft.Mediator.sln
+
+      - name: Build
+        run: dotnet build Mecesoft.Mediator.sln --configuration Release --no-restore
+
+      - name: Test .NET 8
+        run: dotnet test tests/Mecesoft.Mediator.Tests/Mecesoft.Mediator.Tests.csproj --configuration Release --framework net8.0 --no-build --no-restore
+
+      - name: Test .NET 10
+        run: dotnet test tests/Mecesoft.Mediator.Tests/Mecesoft.Mediator.Tests.csproj --configuration Release --framework net10.0 --no-build --no-restore
+
+      - name: Pack (validation only)
+        run: dotnet pack Mecesoft.Mediator/Mecesoft.Mediator.csproj --configuration Release --no-build --output artifacts
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: |
+            artifacts/Mecesoft.Mediator.*.nupkg
+            artifacts/Mecesoft.Mediator.*.snupkg
+          if-no-files-found: error
+          retention-days: 7
