@@ -1,6 +1,6 @@
 # Mecesoft.Mediator
 
-> **Package version:** 1.0.0 (not yet published on NuGet)
+> **Package version:** 1.0.0
 >
 > Supports **.NET 8** and **.NET 10**.
 > Includes optimized request dispatch, improved pipeline execution,
@@ -13,14 +13,14 @@ ordered pipeline behaviors without an external mediator dependency.
 ## Project links
 
 - [GitHub repository](https://github.com/Mecesoft/Mecesoft.Mediator)
-- NuGet package (draft; version 1.0.0 is not published yet): `https://www.nuget.org/packages/Mecesoft.Mediator`
+- [NuGet package](https://www.nuget.org/packages/Mecesoft.Mediator/1.0.0)
 
 ## Installation
 
-Version 1.0.0 is not published yet. The intended installation command after publication is:
+Install version 1.0.0 from NuGet:
 
 ```bash
-dotnet add package Mecesoft.Mediator
+dotnet add package Mecesoft.Mediator --version 1.0.0
 ```
 
 ## Registration
