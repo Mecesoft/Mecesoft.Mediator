@@ -1,6 +1,6 @@
 # Mecesoft.Mediator
 
-> **Planned package version:** 1.0.0 (prepared locally; not published)
+> **Package version:** 1.0.0 (not yet published on NuGet)
 >
 > Supports **.NET 8** and **.NET 10**.
 > Includes optimized request dispatch, improved pipeline execution,
@@ -10,18 +10,14 @@ Mecesoft.Mediator is a lightweight, dependency-injection-friendly mediator libra
 for .NET. It supports requests, notifications, dependency-injection scopes, and
 ordered pipeline behaviors without an external mediator dependency.
 
-## Project status
+## Project links
 
-The package and repository are being prepared. The links below are target
-locations and are **not active yet**; the repository has not been created and
-version 1.0.0 has not been published.
-
-- GitHub repository (planned, not yet created): `https://github.com/Mecesoft/Mecesoft.Mediator`
-- NuGet package (planned, not yet published): `https://www.nuget.org/packages/Mecesoft.Mediator`
+- [GitHub repository](https://github.com/Mecesoft/Mecesoft.Mediator)
+- NuGet package (draft; version 1.0.0 is not published yet): `https://www.nuget.org/packages/Mecesoft.Mediator`
 
 ## Installation
 
-Once version 1.0.0 is published, install it from NuGet:
+Version 1.0.0 is not published yet. The intended installation command after publication is:
 
 ```bash
 dotnet add package Mecesoft.Mediator

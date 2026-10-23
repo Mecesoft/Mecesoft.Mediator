@@ -6,9 +6,9 @@
 # release approval process are all in place.
 #
 # Security parity with the Mecesoft.Result release standard:
-#   - Manual dispatch only, from master, building an immutable annotated v* tag.
+#   - Manual dispatch only, from main, building an immutable annotated v* tag.
 #   - Exact 40-character commit SHA verified against HEAD and the peeled tag.
-#   - Tagged commit must be an ancestor of origin/master and must have passed CI.
+#   - Tagged commit must be an ancestor of origin/main and must have passed CI.
 #   - Package version must match the tag; duplicate .nupkg versions are refused.
 #   - NUGET_USER is a repository/environment variable, never a secret.
 #   - NuGet/login is pinned to a verified commit SHA and uses OIDC Trusted Publishing.
@@ -19,7 +19,7 @@
 # Prerequisites before activation:
 #   1. Create the GitHub repository at the target URL in the project metadata.
 #   2. Configure a protected environment named "nuget" with required reviewers
-#      and deployment branch/tag restrictions (master for bootstrap and v* tags).
+#      and deployment branch/tag restrictions (main for bootstrap and v* tags).
 #   3. Configure a Trusted Publishing policy on nuget.org for this repository
 #      and workflow; set the NUGET_USER repository/environment variable to the
 #      NuGet profile name (not an email address).
@@ -28,8 +28,8 @@
 
 name: Publish NuGet (draft)
 
-# Bootstrap note: this workflow is dispatched from master but builds the
-# immutable release tag. The `nuget` environment must allow master in addition
+# Bootstrap note: this workflow is dispatched from main but builds the
+# immutable release tag. The `nuget` environment must allow main in addition
 # to the v* tag policy, otherwise GitHub rejects the publish job.
 on:
   workflow_dispatch:
@@ -91,8 +91,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          [[ "$REF" == "refs/heads/master" ]] || {
-            echo "This publication workflow must be dispatched from master" >&2
+          [[ "$REF" == "refs/heads/main" ]] || {
+            echo "This publication workflow must be dispatched from main" >&2
             exit 1
           }
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -108,8 +108,8 @@ jobs:
           test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$EXPECTED_COMMIT"
           test "$(git cat-file -t "refs/tags/${RELEASE_TAG}")" = "tag"
 
-          git fetch --no-tags origin "+refs/heads/master:refs/remotes/origin/master"
-          git merge-base --is-ancestor "$EXPECTED_COMMIT" origin/master
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          git merge-base --is-ancestor "$EXPECTED_COMMIT" origin/main
 
           VERSION="$(dotnet msbuild Mecesoft.Mediator/Mecesoft.Mediator.csproj -getProperty:Version -nologo | tail -n 1 | tr -d '\r')"
           test "v${VERSION}" = "$RELEASE_TAG"
@@ -150,7 +150,7 @@ jobs:
   publish:
     name: Build and publish with OIDC
     needs: preflight
-    if: ${{ github.ref == 'refs/heads/master' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
