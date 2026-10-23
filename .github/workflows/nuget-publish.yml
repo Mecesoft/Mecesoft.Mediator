@@ -1,8 +1,8 @@
-# DRAFT — INTENTIONALLY INACTIVE.
+# Release workflow: manual dispatch only.
 #
-# GitHub Actions only executes files ending in .yml or .yaml. The ".draft"
-# extension keeps this workflow inert. Do not rename it to .yml until the
-# NuGet Trusted Publishing policy and release approval process are in place.
+# This workflow is triggerable only through workflow_dispatch. It builds the
+# immutable release tag, verifies the exact commit and successful CI, and
+# publishes through the protected "nuget" environment with OIDC.
 #
 # Security parity with the Mecesoft.Result release standard:
 #   - Manual dispatch only, from main, building an immutable annotated v* tag.
@@ -15,7 +15,7 @@
 #   - Post-upload verification checks only the .nupkg flatcontainer endpoint;
 #     NuGet.org does not expose .snupkg through flatcontainer.
 #
-# Verified repository state before activation:
+# Verified repository state:
 #   - Repository exists and the default branch is main.
 #   - The "nuget" environment has required reviewers and deployment policies
 #     for main and v* patterns.
@@ -23,13 +23,13 @@
 #   - The "Protect release tags" ruleset is active for refs/tags/v* and blocks
 #     deletion, non-fast-forward updates, and updates, with no bypass actors.
 #
-# Remaining before activation:
+# Before dispatch:
 #   1. Confirm the Trusted Publishing policy on nuget.org for this repository
 #      and workflow.
 #   2. Consider enabling "prevent self-review" on the nuget environment.
 #   3. Keep every third-party action pinned to a full commit SHA.
 
-name: Publish NuGet (draft)
+name: Publish NuGet
 
 # Bootstrap note: this workflow is dispatched from main but builds the
 # immutable release tag. The `nuget` environment must allow main in addition
