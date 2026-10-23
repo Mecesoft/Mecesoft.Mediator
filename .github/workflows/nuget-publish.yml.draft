@@ -2,8 +2,7 @@
 #
 # GitHub Actions only executes files ending in .yml or .yaml. The ".draft"
 # extension keeps this workflow inert. Do not rename it to .yml until the
-# repository, NuGet Trusted Publishing policy, protected environment, and
-# release approval process are all in place.
+# NuGet Trusted Publishing policy and release approval process are in place.
 #
 # Security parity with the Mecesoft.Result release standard:
 #   - Manual dispatch only, from main, building an immutable annotated v* tag.
@@ -16,15 +15,19 @@
 #   - Post-upload verification checks only the .nupkg flatcontainer endpoint;
 #     NuGet.org does not expose .snupkg through flatcontainer.
 #
-# Prerequisites before activation:
-#   1. Create the GitHub repository at the target URL in the project metadata.
-#   2. Configure a protected environment named "nuget" with required reviewers
-#      and deployment branch/tag restrictions (main for bootstrap and v* tags).
-#   3. Configure a Trusted Publishing policy on nuget.org for this repository
-#      and workflow; set the NUGET_USER repository/environment variable to the
-#      NuGet profile name (not an email address).
-#   4. Protect v* tags so release tags are immutable.
-#   5. Keep every third-party action pinned to a full commit SHA.
+# Verified repository state before activation:
+#   - Repository exists and the default branch is main.
+#   - The "nuget" environment has required reviewers and deployment policies
+#     for main and v* patterns.
+#   - The NUGET_USER repository variable is configured.
+#   - The "Protect release tags" ruleset is active for refs/tags/v* and blocks
+#     deletion, non-fast-forward updates, and updates, with no bypass actors.
+#
+# Remaining before activation:
+#   1. Confirm the Trusted Publishing policy on nuget.org for this repository
+#      and workflow.
+#   2. Consider enabling "prevent self-review" on the nuget environment.
+#   3. Keep every third-party action pinned to a full commit SHA.
 
 name: Publish NuGet (draft)
 
